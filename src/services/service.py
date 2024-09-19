@@ -1,31 +1,17 @@
 import os
 from datetime import datetime, timedelta
 
+import aiofiles.os
+import aiofiles.threadpool as aiof
 import pandas as pd
 from httpx import AsyncClient
 from database.db import async_session_maker
 from models.spimex_trading import SpimexTradingResults
 
 
-class SpimexService:
-
-    async def download(self, dates: list[datetime]) -> None:
-        try:
-            async with AsyncClient() as client:
-                for date in dates:
-                    url = f"https://spimex.com/upload/reports/oil_xls/oil_xls_{date.strftime('%Y%m%d')}162000.xls"
-                    response = await client.get(url=url, timeout=5)
-                    if response.status_code == 200:
-                        with open(f"{date}_spimex_data.xls", "wb") as file:
-                            file.write(response.content)
-        except Exception as e:
-            print(f"Error while download: {e}!")
-
-
 class SpimexParser:
 
     def __init__(self, year: int, month: int) -> None:
-        self.sc = SpimexService()
         self.dates = self._get_dates(year, month)
         self.async_session = async_session_maker
 
@@ -40,6 +26,18 @@ class SpimexParser:
 
             start_date = next_date
         return dates
+
+    async def _download(self, dates: list[datetime]) -> None:
+        try:
+            async with AsyncClient() as client:
+                for date in dates:
+                    url = f"https://spimex.com/upload/reports/oil_xls/oil_xls_{date.strftime('%Y%m%d')}162000.xls"
+                    response = await client.get(url=url, timeout=5)
+                    if response.status_code == 200:
+                        async with aiof.open(f"{date}_spimex_data.xls", "wb") as file:
+                            await file.write(response.content)
+        except Exception as e:
+            print(f"Error while download: {e}!")
 
     def _get_necessary_data(self, file: str) -> pd.DataFrame:
         columns_names = [
@@ -74,11 +72,10 @@ class SpimexParser:
                 session.add_all(obj)
 
     async def start(self) -> None:
-
-        await self.sc.download(self.dates)
-        prepared_obj = []
+        await self._download(self.dates)
         for date in self.dates:
             if os.path.exists(f"{date}_spimex_data.xls"):
+                prepared_obj = []
                 df_data = self._get_necessary_data(f"{date}_spimex_data.xls")
                 for _, row in df_data.iterrows():
                     obj = SpimexTradingResults(
@@ -94,6 +91,5 @@ class SpimexParser:
                         date=date,
                     )
                     prepared_obj.append(obj)
-                os.remove(f"{date}_spimex_data.xls")
-
-        await self._save_to_db(prepared_obj)
+                await self._save_to_db(prepared_obj)
+                await aiofiles.os.remove(f"{date}_spimex_data.xls")
