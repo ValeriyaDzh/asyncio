@@ -2,8 +2,6 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 
-import aiofiles.os
-import aiofiles.threadpool as aiof
 import pandas as pd
 from httpx import AsyncClient
 from database.db import async_session_maker
@@ -71,32 +69,11 @@ class SpimexParser:
             async with session.begin():
                 session.add_all(obj)
 
-    async def _parse_and_save(self, date: datetime) -> None:
-        if os.path.exists(f"{date}_spimex_data.xls"):
-            prepared_obj = []
-            df_data = self._get_necessary_data(f"{date}_spimex_data.xls")
-            for _, row in df_data.iterrows():
-                obj = SpimexTradingResults(
-                    exchange_product_id=row["exchange_product_id"],
-                    exchange_product_name=row["exchange_product_name"],
-                    oil_id=row["exchange_product_id"][:4],
-                    delivery_basis_id=row["exchange_product_id"][4:7],
-                    delivery_basis_name=row["delivery_basis_name"],
-                    delivery_type_id=row["exchange_product_id"][-1],
-                    volume=row["volume"],
-                    total=row["total"],
-                    count=row["count"],
-                    date=date,
-                )
-                prepared_obj.append(obj)
-            await self._save_to_db(prepared_obj)
-            # await aiofiles.os.remove(f"{date}_spimex_data.xls")
-            os.remove(f"{date}_spimex_data.xls")
-
     async def start(self) -> None:
 
         tasks = [self._download_and_save(date) for date in self.dates]
         await asyncio.gather(*tasks)
+
         for date in self.dates:
             if os.path.exists(f"{date}_spimex_data.xls"):
                 prepared_obj = []
@@ -116,7 +93,6 @@ class SpimexParser:
                     )
                     prepared_obj.append(obj)
                 await self._save_to_db(prepared_obj)
-                # await aiofiles.os.remove(f"{date}_spimex_data.xls")
                 os.remove(f"{date}_spimex_data.xls")
 
 
