@@ -26,16 +26,12 @@ class SpimexParser:
             start_date = next_date
         return dates
 
-    async def _download_and_save(self, date: datetime) -> None:
-        try:
-            async with AsyncClient() as client:
-                url = f"https://spimex.com/upload/reports/oil_xls/oil_xls_{date.strftime('%Y%m%d')}162000.xls"
-                response = await client.get(url=url, timeout=5)
-                if response.status_code == 200:
-                    with open(f"{date}_spimex_data.xls", "wb") as file:
-                        file.write(response.content)
-        except Exception as e:
-            print(f"Error while download: {e}!")
+    async def _download_and_save(self, date: datetime, client: AsyncClient) -> None:
+        url = f"https://spimex.com/upload/reports/oil_xls/oil_xls_{date.strftime('%Y%m%d')}162000.xls"
+        response = await client.get(url=url, timeout=5)
+        if response.status_code == 200:
+            with open(f"{date}_spimex_data.xls", "wb") as file:
+                file.write(response.content)
 
     def _get_necessary_data(self, file: str) -> pd.DataFrame:
         columns_names = [
@@ -70,9 +66,12 @@ class SpimexParser:
                 session.add_all(obj)
 
     async def start(self) -> None:
-
-        tasks = [self._download_and_save(date) for date in self.dates]
-        await asyncio.gather(*tasks)
+        try:
+            async with AsyncClient() as client:
+                tasks = [self._download_and_save(date, client) for date in self.dates]
+                await asyncio.gather(*tasks)
+        except Exception as e:
+            print(f"Error while download: {e}!")
 
         for date in self.dates:
             if os.path.exists(f"{date}_spimex_data.xls"):
